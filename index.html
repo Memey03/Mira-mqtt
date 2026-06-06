@@ -87,6 +87,7 @@
             const [isListening, setIsListening] = useState(false);
             const [transcript, setTranscript] = useState('');
             const recognitionRef = useRef(null);
+            const processVoiceCommandRef = useRef(null);
 
             // Fungsi untuk menambahkan pesan ke panel log (max 50 baris)
             const addLog = useCallback((msg) => {
@@ -220,7 +221,7 @@
                     recognition.onresult = (event) => {
                         const text = event.results[0][0].transcript.toLowerCase();
                         setTranscript(text);
-                        processVoiceCommand(text);
+                        if (processVoiceCommandRef.current) processVoiceCommandRef.current(text);
                     };
 
                     recognition.onerror = (event) => {
@@ -239,6 +240,11 @@
                     setTranscript("Fitur suara tidak tersedia di browser ini.");
                 }
             }, []);
+
+            // Update current processVoiceCommand reference
+            useEffect(() => {
+                processVoiceCommandRef.current = processVoiceCommand;
+            });
 
             // Pemroses Perintah Suara Berdasarkan Aturan
             const processVoiceCommand = (cmd) => {
@@ -324,9 +330,11 @@
 
             // Handler ketika toggle switch ditekan
             const handleRelayChange = (index, desiredState) => {
-                const newState = [...relayState];
-                newState[index] = desiredState;
-                setRelayState(newState);
+                setRelayState(prev => {
+                    const newState = [...prev];
+                    newState[index] = desiredState;
+                    return newState;
+                });
                 
                 const payload = `R${index + 1}:${desiredState ? 'ON' : 'OFF'}`;
                 publishAll(payload);
