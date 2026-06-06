@@ -242,52 +242,69 @@
 
             // Pemroses Perintah Suara Berdasarkan Aturan
             const processVoiceCommand = (cmd) => {
-                if (cmd.match(/(hidupkan|nyalakan).*lampu (satu|1)/) || cmd.match(/lampu (satu|1).*nyala/)) {
-                    handleRelayChange(0, true);
-                    speak("Lampu satu dinyalakan");
-                } else if (cmd.match(/(matikan).*lampu (satu|1)/) || cmd.match(/lampu (satu|1).*mati/)) {
-                    handleRelayChange(0, false);
-                    speak("Lampu satu dimatikan");
-                } else if (cmd.match(/(hidupkan|nyalakan).*lampu (dua|2)/) || cmd.match(/lampu (dua|2).*nyala/)) {
-                    handleRelayChange(1, true);
-                    speak("Lampu dua dinyalakan");
-                } else if (cmd.match(/(matikan).*lampu (dua|2)/) || cmd.match(/lampu (dua|2).*mati/)) {
-                    handleRelayChange(1, false);
-                    speak("Lampu dua dimatikan");
-                } else if (cmd.match(/(hidupkan|nyalakan).*lampu (tiga|3)/) || cmd.match(/lampu (tiga|3).*nyala/)) {
-                    handleRelayChange(2, true);
-                    speak("Lampu tiga dinyalakan");
-                } else if (cmd.match(/(matikan).*lampu (tiga|3)/) || cmd.match(/lampu (tiga|3).*mati/)) {
-                    handleRelayChange(2, false);
-                    speak("Lampu tiga dimatikan");
-                } else if (cmd.match(/(hidupkan|nyalakan).*lampu (empat|4)/) || cmd.match(/lampu (empat|4).*nyala/)) {
-                    handleRelayChange(3, true);
-                    speak("Lampu empat dinyalakan");
-                } else if (cmd.match(/(matikan).*lampu (empat|4)/) || cmd.match(/lampu (empat|4).*mati/)) {
-                    handleRelayChange(3, false);
-                    speak("Lampu empat dimatikan");
-                } else if (cmd.match(/(semua).*nyala/) || cmd.match(/(hidupkan|nyalakan).*semua/)) {
+                const text = cmd.toLowerCase();
+                
+                const isNyala = text.includes('hidup') || text.includes('nyala') || text.includes('on') || text.includes('aktif');
+                const isMati = text.includes('mati') || text.includes('off');
+                const isSemua = text.includes('semua') || text.includes('seluruh');
+                
+                const isSatu = text.includes('satu') || text.includes('1');
+                const isDua = text.includes('dua') || text.includes('2');
+                const isTiga = text.includes('tiga') || text.includes('3');
+                const isEmpat = text.includes('empat') || text.includes('4');
+                
+                const isPola1 = text.includes('pola satu') || text.includes('pola 1');
+                const isPola2 = text.includes('pola dua') || text.includes('pola 2');
+                const isPola = text.includes('pola');
+                const isStop = text.includes('stop') || text.includes('henti') || (isPola && isMati);
+                const isInfoSuhu = text.includes('suhu') || text.includes('temperatur');
+
+                if (isInfoSuhu) {
+                    speak(`Suhu saat ini ${sensor.suhu} derajat celsius, kelembapan ${sensor.kelembapan} persen.`);
+                } else if (isStop) {
+                    publishAll('STOP');
+                    speak("Pola dihentikan");
+                } else if (isPola1) {
+                    publishAll('POLA1');
+                    speak("Pola satu diaktifkan");
+                } else if (isPola2) {
+                    publishAll('POLA2');
+                    speak("Pola dua diaktifkan");
+                } else if (isSemua && isNyala) {
                     publishAll('ON');
                     setRelayState([true, true, true, true]);
                     speak("Semua lampu dinyalakan");
-                } else if (cmd.match(/(semua).*mati/) || cmd.match(/(matikan).*semua/)) {
+                } else if (isSemua && isMati) {
                     publishAll('OFF');
                     setRelayState([false, false, false, false]);
                     speak("Semua lampu dimatikan");
-                } else if (cmd.match(/pola (satu|1)/)) {
-                    publishAll('POLA1');
-                    speak("Pola satu diaktifkan");
-                } else if (cmd.match(/pola (dua|2)/)) {
-                    publishAll('POLA2');
-                    speak("Pola dua diaktifkan");
-                } else if (cmd.includes('stop pola') || cmd.includes('hentikan pola') || cmd.includes('berhenti')) {
-                    publishAll('STOP');
-                    speak("Pola dihentikan");
-                } else if (cmd.includes('info suhu') || cmd.includes('berapa suhu')) {
-                    speak(`Suhu saat ini ${sensor.suhu} derajat celsius, kelembapan ${sensor.kelembapan} persen.`);
+                } else if (isSatu && isNyala) {
+                    handleRelayChange(0, true);
+                    speak("Lampu satu dinyalakan");
+                } else if (isSatu && isMati) {
+                    handleRelayChange(0, false);
+                    speak("Lampu satu dimatikan");
+                } else if (isDua && isNyala) {
+                    handleRelayChange(1, true);
+                    speak("Lampu dua dinyalakan");
+                } else if (isDua && isMati) {
+                    handleRelayChange(1, false);
+                    speak("Lampu dua dimatikan");
+                } else if (isTiga && isNyala) {
+                    handleRelayChange(2, true);
+                    speak("Lampu tiga dinyalakan");
+                } else if (isTiga && isMati) {
+                    handleRelayChange(2, false);
+                    speak("Lampu tiga dimatikan");
+                } else if (isEmpat && isNyala) {
+                    handleRelayChange(3, true);
+                    speak("Lampu empat dinyalakan");
+                } else if (isEmpat && isMati) {
+                    handleRelayChange(3, false);
+                    speak("Lampu empat dimatikan");
                 } else {
                     speak("Perintah tidak dikenali.");
-                    addLog(`Perintah tak dikenali: ${cmd}`);
+                    addLog(`Perintah tak dikenali: ${text}`);
                 }
             };
 
