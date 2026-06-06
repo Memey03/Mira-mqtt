@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IoT Control Dashboard</title>
+    
+    <!-- Google Fonts Poppins -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        poppins: ['Poppins', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- React 18 via CDN -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel untuk JSX transpilation -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- MQTT.js via CDN -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+
+    <style>
+        body { font-family: 'Poppins', sans-serif; background-color: #FFF0F5; margin: 0; padding: 0; }
+        
+        /* Pulse animasi ringan ketika data sensor diupdate */
+        @keyframes soft-pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.9; transform: scale(1.02); }
+        }
+        .animate-soft-pulse {
+            animation: soft-pulse 0.4s ease-out;
+        }
+
+        /* Log Panel scrollbar styling */
+        .log-scroll::-webkit-scrollbar {
+            width: 6px;
+        }
+        .log-scroll::-webkit-scrollbar-track {
+            background: rgba(255, 228, 230, 0.5); /* rose-100 */
+            border-radius: 4px;
+        }
+        .log-scroll::-webkit-scrollbar-thumb {
+            background: #f43f5e; /* rose-500 */
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useCallback } = React;
+
+        const App = () => {
+            // Referensi untuk menyimpan koneksi ke 3 broker
+            const clientsRef = useRef({ b1: null, b2: null, b3: null });
+            
+            // State untuk status koneksi broker
+            const [brokerStatus, setBrokerStatus] = useState({
+                b1: 'connecting', b2: 'connecting', b3: 'connecting'
+            });
+            
+            // State untuk ke-empat relay (Lampu)
+            const [relayState, setRelayState] = useState([false, false, false, false]);
+            
+            // State untuk sensor
+            const [sensor, setSensor] = useState({ suhu: '--', kelembapan: '--' });
+            const [sensorPulse, setSensorPulse] = useState(false);
+            
+            // State untuk log panel
+            const [logs, setLogs] = useState([]);
+            
+            // State untuk Voice Command
+            const [isListening, setIsListening] = useState(false);
+            const [transcript, setTranscript] = useState('');
+            const recognitionRef = useRef(null);
+
+            // Fungsi untuk menambahkan pesan ke panel log (max 50 baris)
+            const addLog = useCallback((msg) => {
+                const time = new Date().toLocaleTimeString('id-ID');
+                setLogs(prev => [`[${time}] ${msg}`, ...prev].slice(0, 50));
+            }, []);
+
+            // Fungsi Text-To-Speech (TTS)
+            const speak = (text) => {
+                if ('speechSynthesis' in window) {
+                    const utter = new SpeechSynthesisUtterance(text);
+                    utter.lang = 'id-ID';
+                    window.speechSynthesis.speak(utter);
+                }
+            };
+
+            // Setup dan Koneksi MQTT
+            useEffect(() => {
+                // Konfigurasi Client ID unik untuk masing-masing broker
+                const b1_clientId = "web_b1_" + Math.random().toString(36).substr(2, 9);
+                const b2_clientId = "web_b2_" + Math.random().toString(36).substr(2, 9);
+                const b3_clientId = "web_b3_" + Math.random().toString(36).substr(2, 9);
+
+                // Inisiasi koneksi ke ketiga broker sekaligus
+                try {
+                    clientsRef.current.b1 = window.mqtt.connect('wss://test.mosquitto.org:8081', { clientId: b1_clientId });
+                } catch (e) {
+                    addLog("Error Broker 1: " + e.message);
+                    setBrokerStatus(prev => ({ ...prev, b1: 'error' }));
+                }
+
+                try {
+                    // Gunakan WSS jika berada di halaman HTTPS untuk menghindari SecurityError
+                    const urlB2 = window.location.protocol === 'https:' ? 'wss://broker.mqtt.cool:8083' : 'ws://broker.mqtt.cool:8083';
+                    clientsRef.current.b2 = window.mqtt.connect(urlB2, { clientId: b2_clientId });
+                } catch (e) {
+                    addLog("Error Broker 2: " + e.message);
+                    setBrokerStatus(prev => ({ ...prev, b2: 'error' }));
+                }
+
+                try {
+                    clientsRef.current.b3 = window.mqtt.connect('wss://mqtt.flespi.io:443', { 
+                        clientId: b3_clientId,
+                        username: "r6urKWnSiwA8lUQIq9mYKxWd9g7ktNWGfZIJU1h1CyS3IOqbeCDtSrfD9WIXyAKA",
+                        password: "" 
+                    });
+                } catch (e) {
+                    addLog("Error Broker 3: " + e.message);
+                    setBrokerStatus(prev => ({ ...prev, b3: 'error' }));
+                }
+
+                // Fungsi helper untuk mengatur event handlers per klient
+                const setupClient = (client, key, name) => {
+                    if(!client) return;
+
+                    client.on('connect', () => {
+                        setBrokerStatus(prev => ({ ...prev, [key]: 'connected' }));
+                        addLog(`${name} terhubung.`);
+                        // Subscribe topik sensor jika sudah terhubung
+                        client.subscribe('esp32/sensor/status');
+                    });
+
+                    client.on('error', (err) => {
+                        setBrokerStatus(prev => ({ ...prev, [key]: 'error' }));
+                        addLog(`Error ${name}: ${err.message || 'Gagal koneksi'}`);
+                    });
+
+                    client.on('close', () => {
+                        setBrokerStatus(prev => ({ ...prev, [key]: 'error' }));
+                    });
+                    
+                    client.on('reconnect', () => {
+                        setBrokerStatus(prev => ({ ...prev, [key]: 'connecting' }));
+                    });
+
+                    client.on('message', (topic, message) => {
+                        if (topic === 'esp32/sensor/status') {
+                            try {
+                                const data = JSON.parse(message.toString());
+                                setSensor({ suhu: data.suhu || '--', kelembapan: data.kelembapan || '--' });
+                                
+                                // Memicu animasi pulse sejenak pada UI
+                                setSensorPulse(true);
+                                setTimeout(() => setSensorPulse(false), 400); 
+                            } catch (e) {
+                                console.error("Gagal parse message MQTT", e);
+                            }
+                        }
+                    });
+                };
+
+                // Memasang handler untuk masing-masing
+                setupClient(clientsRef.current.b1, 'b1', 'Broker 1');
+                setupClient(clientsRef.current.b2, 'b2', 'Broker 2');
+                setupClient(clientsRef.current.b3, 'b3', 'Broker 3');
+
+                // Cleanup saat unmount
+                return () => {
+                    if (clientsRef.current.b1) clientsRef.current.b1.end();
+                    if (clientsRef.current.b2) clientsRef.current.b2.end();
+                    if (clientsRef.current.b3) clientsRef.current.b3.end();
+                };
+            }, [addLog]);
+
+            // Fungsi Publikasi ke SELURUH broker yang aktif
+            const publishAll = useCallback((payload) => {
+                const clients = clientsRef.current;
+                let sent = 0;
+                
+                if (clients.b1 && clients.b1.connected) { clients.b1.publish('esp32/relay/cmd', payload); sent++; }
+                if (clients.b2 && clients.b2.connected) { clients.b2.publish('esp32/relay/cmd', payload); sent++; }
+                if (clients.b3 && clients.b3.connected) { clients.b3.publish('esp32/relay/cmd', payload); sent++; }
+                
+                addLog(`Perintah: ${payload} → dikirim ke ${sent} broker`);
+            }, [addLog]);
+
+            // Setup Pengenalan Suara (Web Speech API)
+            useEffect(() => {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                
+                if (SpeechRecognition) {
+                    const recognition = new SpeechRecognition();
+                    recognition.continuous = false;
+                    recognition.interimResults = false;
+                    recognition.lang = 'id-ID';
+
+                    recognition.onstart = () => {
+                        setIsListening(true);
+                    };
+
+                    recognition.onresult = (event) => {
+                        const text = event.results[0][0].transcript.toLowerCase();
+                        setTranscript(text);
+                        processVoiceCommand(text);
+                    };
+
+                    recognition.onerror = (event) => {
+                        addLog(`Voice Error: ${event.error}`);
+                        setIsListening(false);
+                        setTranscript('Gagal mendengarkan, coba lagi.');
+                    };
+
+                    recognition.onend = () => {
+                        setIsListening(false);
+                    };
+
+                    recognitionRef.current = recognition;
+                } else {
+                    addLog("Warning: Browser tidak mendukung Web Speech API.");
+                    setTranscript("Fitur suara tidak tersedia di browser ini.");
+                }
+            }, []);
+
+            // Pemroses Perintah Suara Berdasarkan Aturan
+            const processVoiceCommand = (cmd) => {
+                if (cmd.includes('hidupkan lampu satu') || cmd.includes('nyalakan lampu 1') || cmd.includes('nyalakan lampu satu')) {
+                    handleRelayChange(0, true);
+                    speak("Lampu satu dinyalakan");
+                } else if (cmd.includes('matikan lampu satu') || cmd.includes('lampu 1 mati') || cmd.includes('lampu satu mati')) {
+                    handleRelayChange(0, false);
+                    speak("Lampu satu dimatikan");
+                } else if (cmd.includes('hidupkan lampu dua') || cmd.includes('nyalakan lampu 2') || cmd.includes('nyalakan lampu dua')) {
+                    handleRelayChange(1, true);
+                    speak("Lampu dua dinyalakan");
+                } else if (cmd.includes('matikan lampu dua') || cmd.includes('lampu 2 mati') || cmd.includes('lampu dua mati')) {
+                    handleRelayChange(1, false);
+                    speak("Lampu dua dimatikan");
+                } else if (cmd.includes('hidupkan lampu tiga') || cmd.includes('nyalakan lampu 3') || cmd.includes('nyalakan lampu tiga')) {
+                    handleRelayChange(2, true);
+                    speak("Lampu tiga dinyalakan");
+                } else if (cmd.includes('matikan lampu tiga') || cmd.includes('lampu 3 mati') || cmd.includes('lampu tiga mati')) {
+                    handleRelayChange(2, false);
+                    speak("Lampu tiga dimatikan");
+                } else if (cmd.includes('hidupkan lampu empat') || cmd.includes('nyalakan lampu 4') || cmd.includes('nyalakan lampu empat')) {
+                    handleRelayChange(3, true);
+                    speak("Lampu empat dinyalakan");
+                } else if (cmd.includes('matikan lampu empat') || cmd.includes('lampu 4 mati') || cmd.includes('lampu empat mati')) {
+                    handleRelayChange(3, false);
+                    speak("Lampu empat dimatikan");
+                } else if (cmd.includes('semua nyala') || cmd.includes('hidupkan semua')) {
+                    publishAll('ON');
+                    setRelayState([true, true, true, true]);
+                    speak("Semua lampu dinyalakan");
+                } else if (cmd.includes('semua mati') || cmd.includes('matikan semua')) {
+                    publishAll('OFF');
+                    setRelayState([false, false, false, false]);
+                    speak("Semua lampu dimatikan");
+                } else if (cmd.includes('pola satu') || cmd.includes('pola lampu satu')) {
+                    publishAll('POLA1');
+                    speak("Pola satu diaktifkan");
+                } else if (cmd.includes('pola dua') || cmd.includes('pola lampu dua')) {
+                    publishAll('POLA2');
+                    speak("Pola dua diaktifkan");
+                } else if (cmd.includes('stop pola') || cmd.includes('hentikan pola') || cmd.includes('berhenti')) {
+                    publishAll('STOP');
+                    speak("Pola dihentikan");
+                } else if (cmd.includes('info suhu') || cmd.includes('berapa suhu')) {
+                    speak(`Suhu saat ini ${sensor.suhu} derajat celsius, kelembapan ${sensor.kelembapan} persen.`);
+                } else {
+                    speak("Perintah tidak dikenali.");
+                    addLog(`Perintah tak dikenali: ${cmd}`);
+                }
+            };
+
+            // Toggle Microphone Listeng
+            const toggleListen = () => {
+                if (isListening) {
+                    recognitionRef.current?.stop();
+                } else {
+                    setTranscript('');
+                    try {
+                        recognitionRef.current?.start();
+                    } catch(e) {
+                        addLog("Error memulai proses pendengaran");
+                    }
+                }
+            };
+
+            // Handler ketika toggle switch ditekan
+            const handleRelayChange = (index, desiredState) => {
+                const newState = [...relayState];
+                newState[index] = desiredState;
+                setRelayState(newState);
+                
+                const payload = `R${index + 1}:${desiredState ? 'ON' : 'OFF'}`;
+                publishAll(payload);
+            };
+
+            // Komponen Badge Status Broker
+            const StatusBadge = ({ name, status }) => {
+                const colors = {
+                    connecting: 'bg-yellow-400',
+                    connected: 'bg-green-400',
+                    error: 'bg-red-500'
+                };
+                return (
+                    <div className="bg-white/10 px-2 md:px-3 py-1 md:py-1.5 rounded-full border border-white/20 flex items-center gap-1 md:gap-2">
+                        <div className={`w-2 h-2 rounded-full ${colors[status]} ${status === 'connecting' ? 'animate-pulse' : ''}`}></div>
+                        <span className="text-white text-[8px] md:text-[10px] font-bold">{name}</span>
+                    </div>
+                );
+            };
+
+            return (
+                <div className="min-h-screen bg-[#FFF0F5] font-poppins flex flex-col selection:bg-pink-300 selection:text-pink-900">
+                    {/* Header */}
+                    <header className="h-16 md:h-20 bg-pink-600 flex items-center justify-between px-4 md:px-8 shadow-md z-10 shrink-0">
+                        <div className="flex flex-col">
+                            <h1 className="text-white font-bold text-sm md:text-xl leading-tight">IoT Control Dashboard</h1>
+                            <p className="text-pink-100 text-[8px] md:text-xs font-medium uppercase tracking-widest mt-0.5">Multi-Broker MQTT System</p>
+                        </div>
+                        <div className="flex gap-1 md:gap-4">
+                            <StatusBadge name="B1: MOSQUITTO" status={brokerStatus.b1} />
+                            <StatusBadge name="B2: MQTT.COOL" status={brokerStatus.b2} />
+                            <StatusBadge name="B3: FLESPI" status={brokerStatus.b3} />
+                        </div>
+                    </header>
+
+                    {/* Main Content Area */}
+                    <main className="flex-1 p-4 md:p-6 flex flex-col md:grid md:grid-cols-12 gap-6 overflow-y-auto">
+                        {/* Left Side: Sensors & Relays */}
+                        <div className="md:col-span-7 flex flex-col gap-6">
+                            {/* Sensor Cards Row */}
+                            <div className="grid grid-cols-2 gap-4 md:gap-6">
+                                <div className={`bg-white rounded-2xl p-4 md:p-6 shadow-md border border-pink-100 flex items-center justify-between transition-all ${sensorPulse ? 'scale-[1.02]' : 'scale-100'}`}>
+                                    <div>
+                                        <p className="text-gray-500 text-[10px] md:text-xs font-semibold uppercase tracking-wider mb-1">Suhu Ruangan</p>
+                                        <p className="text-pink-600 text-3xl md:text-5xl font-bold">{sensor.suhu}<span className="text-xl md:text-2xl ml-1">°C</span></p>
+                                    </div>
+                                    <div className="text-3xl md:text-4xl" style={{ textShadow: "0 2px 10px rgba(236,72,153,0.3)" }}>🌡️</div>
+                                </div>
+                                <div className={`bg-white rounded-2xl p-4 md:p-6 shadow-md border border-pink-100 flex items-center justify-between transition-all ${sensorPulse ? 'scale-[1.02]' : 'scale-100'}`}>
+                                    <div>
+                                        <p className="text-gray-500 text-[10px] md:text-xs font-semibold uppercase tracking-wider mb-1">Kelembapan</p>
+                                        <p className="text-pink-600 text-3xl md:text-5xl font-bold">{sensor.kelembapan}<span className="text-xl md:text-2xl ml-1">%</span></p>
+                                    </div>
+                                    <div className="text-3xl md:text-4xl" style={{ textShadow: "0 2px 10px rgba(59,130,246,0.3)" }}>💧</div>
+                                </div>
+                            </div>
+
+                            {/* Relay Grid */}
+                            <div className="flex-1 bg-white rounded-3xl p-4 md:p-6 shadow-md border border-pink-100 flex flex-col min-h-[300px]">
+                                <h2 className="text-gray-800 font-bold mb-4 flex items-center gap-2">
+                                    <span className="w-2 h-6 bg-pink-500 rounded-full"></span>
+                                    Kontrol Relay
+                                </h2>
+                                <div className="grid grid-cols-2 gap-4 flex-1">
+                                    {[
+                                        { id: 1, name: "Lampu 1", key: 0 },
+                                        { id: 2, name: "Lampu 2", key: 1 },
+                                        { id: 3, name: "Lampu 3", key: 2 },
+                                        { id: 4, name: "Lampu 4", key: 3 }
+                                    ].map((relay) => {
+                                        const isActive = relayState[relay.key];
+                                        return (
+                                            <div 
+                                                key={relay.key} 
+                                                onClick={() => handleRelayChange(relay.key, !isActive)} 
+                                                className={`cursor-pointer rounded-2xl p-4 flex flex-col justify-between transition-all hover:-translate-y-1 ${isActive ? 'bg-pink-50 border-2 border-pink-500 shadow-sm' : 'bg-white border border-gray-200 hover:border-pink-200 shadow-sm'}`}
+                                            >
+                                                <div className="flex justify-between items-start">
+                                                    <span className={`font-bold text-lg ${isActive ? 'text-pink-700' : 'text-gray-400'}`}>
+                                                        0{relay.id}
+                                                    </span>
+                                                    <div className={`w-12 h-6 rounded-full relative transition-colors shadow-sm ${isActive ? 'bg-pink-500' : 'bg-gray-200'}`}>
+                                                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all duration-300 shadow-sm ${isActive ? 'right-1' : 'left-1'}`}></div>
+                                                    </div>
+                                                </div>
+                                                <div className="mt-4">
+                                                    <p className={`font-bold text-sm md:text-base ${isActive ? 'text-pink-900' : 'text-gray-800'}`}>{relay.name}</p>
+                                                    <p className={`text-[10px] font-semibold mt-0.5 ${isActive ? 'text-pink-600' : 'text-gray-400'}`}>
+                                                        STATUS: {isActive ? 'ON' : 'OFF'}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Right Side: Master, Voice, Logs */}
+                        <div className="md:col-span-5 flex flex-col gap-6">
+                            {/* Master Control */}
+                            <div className="bg-white rounded-3xl p-5 md:p-6 shadow-md border border-pink-100 shrink-0">
+                                <h2 className="text-gray-800 font-bold mb-4 flex items-center gap-2">
+                                    <span className="w-2 h-6 bg-rose-400 rounded-full"></span>
+                                    Master Control
+                                </h2>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <button onClick={() => { publishAll('ON'); setRelayState([true,true,true,true]); }} className="bg-pink-600 text-white font-bold py-3 rounded-xl text-xs flex justify-center items-center uppercase hover:bg-pink-700 transition-colors shadow-sm active:scale-95">Semua ON</button>
+                                    <button onClick={() => { publishAll('OFF'); setRelayState([false,false,false,false]); }} className="bg-gray-800 text-white font-bold py-3 rounded-xl text-xs flex justify-center items-center uppercase hover:bg-gray-900 transition-colors shadow-sm active:scale-95">Semua OFF</button>
+                                    <button onClick={() => publishAll('POLA1')} className="bg-pink-100 text-pink-600 font-bold py-3 rounded-xl text-xs flex justify-center items-center uppercase hover:bg-pink-200 transition-colors shadow-sm active:scale-95">Pola 1</button>
+                                    <button onClick={() => publishAll('POLA2')} className="bg-pink-100 text-pink-600 font-bold py-3 rounded-xl text-xs flex justify-center items-center uppercase hover:bg-pink-200 transition-colors shadow-sm active:scale-95">Pola 2</button>
+                                    <button onClick={() => publishAll('STOP')} className="col-span-2 border-2 border-red-200 text-red-500 font-bold py-3 rounded-xl text-xs flex justify-center items-center uppercase hover:bg-red-50 hover:border-red-300 transition-colors shadow-sm active:scale-95">STOP POLA</button>
+                                </div>
+                            </div>
+
+                            {/* Voice Panel */}
+                            <div className="bg-white rounded-3xl p-5 md:p-6 shadow-md border border-pink-100 flex flex-col items-center shrink-0">
+                                <button 
+                                    onClick={toggleListen}
+                                    className={`w-16 h-16 rounded-full flex items-center justify-center text-white text-3xl mb-3 shadow-lg border-4 transition-all focus:outline-none active:scale-95
+                                        ${isListening ? 'bg-pink-600 border-pink-300 shadow-pink-300 animate-pulse' : 'bg-pink-500 border-pink-100 shadow-pink-200 hover:bg-pink-600 hover:scale-105'}`
+                                    }
+                                >
+                                    🎙️
+                                </button>
+                                <p className="text-gray-800 font-bold text-sm">{isListening ? 'Mendengarkan...' : 'Ketuk untuk bicara'}</p>
+                                <div className="mt-3 w-full bg-rose-50 rounded-xl p-3 border border-pink-100 italic text-gray-500 text-xs text-center min-h-[44px] flex items-center justify-center px-4">
+                                    {transcript || (isListening ? '...' : '"Nyalakan lampu satu"')}
+                                </div>
+                            </div>
+
+                            {/* Logs */}
+                            <div className="flex-1 min-h-[220px] bg-gray-900 rounded-3xl p-4 md:p-5 shadow-inner overflow-hidden border-4 border-white flex flex-col">
+                                <div className="flex justify-between items-center mb-3 shrink-0">
+                                    <span className="text-pink-400 font-mono text-[10px] font-bold">SYSTEM LOGS</span>
+                                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                                </div>
+                                <div className="flex-1 overflow-y-auto space-y-1.5 font-mono text-[10px] md:text-xs text-green-400 opacity-80 flex flex-col-reverse log-scroll pr-2">
+                                    {logs.map((log, index) => {
+                                        return (
+                                            <p key={index} className="break-words leading-relaxed">
+                                                {log}
+                                            </p>
+                                        )
+                                    })}
+                                    {logs.length === 0 && <p className="text-gray-500 italic text-center py-4">Sistem siap...</p>}
+                                </div>
+                            </div>
+                        </div>
+                    </main>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
