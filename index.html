@@ -242,42 +242,42 @@
 
             // Pemroses Perintah Suara Berdasarkan Aturan
             const processVoiceCommand = (cmd) => {
-                if (cmd.includes('hidupkan lampu satu') || cmd.includes('nyalakan lampu 1') || cmd.includes('nyalakan lampu satu')) {
+                if (cmd.match(/(hidupkan|nyalakan).*lampu (satu|1)/) || cmd.match(/lampu (satu|1).*nyala/)) {
                     handleRelayChange(0, true);
                     speak("Lampu satu dinyalakan");
-                } else if (cmd.includes('matikan lampu satu') || cmd.includes('lampu 1 mati') || cmd.includes('lampu satu mati')) {
+                } else if (cmd.match(/(matikan).*lampu (satu|1)/) || cmd.match(/lampu (satu|1).*mati/)) {
                     handleRelayChange(0, false);
                     speak("Lampu satu dimatikan");
-                } else if (cmd.includes('hidupkan lampu dua') || cmd.includes('nyalakan lampu 2') || cmd.includes('nyalakan lampu dua')) {
+                } else if (cmd.match(/(hidupkan|nyalakan).*lampu (dua|2)/) || cmd.match(/lampu (dua|2).*nyala/)) {
                     handleRelayChange(1, true);
                     speak("Lampu dua dinyalakan");
-                } else if (cmd.includes('matikan lampu dua') || cmd.includes('lampu 2 mati') || cmd.includes('lampu dua mati')) {
+                } else if (cmd.match(/(matikan).*lampu (dua|2)/) || cmd.match(/lampu (dua|2).*mati/)) {
                     handleRelayChange(1, false);
                     speak("Lampu dua dimatikan");
-                } else if (cmd.includes('hidupkan lampu tiga') || cmd.includes('nyalakan lampu 3') || cmd.includes('nyalakan lampu tiga')) {
+                } else if (cmd.match(/(hidupkan|nyalakan).*lampu (tiga|3)/) || cmd.match(/lampu (tiga|3).*nyala/)) {
                     handleRelayChange(2, true);
                     speak("Lampu tiga dinyalakan");
-                } else if (cmd.includes('matikan lampu tiga') || cmd.includes('lampu 3 mati') || cmd.includes('lampu tiga mati')) {
+                } else if (cmd.match(/(matikan).*lampu (tiga|3)/) || cmd.match(/lampu (tiga|3).*mati/)) {
                     handleRelayChange(2, false);
                     speak("Lampu tiga dimatikan");
-                } else if (cmd.includes('hidupkan lampu empat') || cmd.includes('nyalakan lampu 4') || cmd.includes('nyalakan lampu empat')) {
+                } else if (cmd.match(/(hidupkan|nyalakan).*lampu (empat|4)/) || cmd.match(/lampu (empat|4).*nyala/)) {
                     handleRelayChange(3, true);
                     speak("Lampu empat dinyalakan");
-                } else if (cmd.includes('matikan lampu empat') || cmd.includes('lampu 4 mati') || cmd.includes('lampu empat mati')) {
+                } else if (cmd.match(/(matikan).*lampu (empat|4)/) || cmd.match(/lampu (empat|4).*mati/)) {
                     handleRelayChange(3, false);
                     speak("Lampu empat dimatikan");
-                } else if (cmd.includes('semua nyala') || cmd.includes('hidupkan semua')) {
+                } else if (cmd.match(/(semua).*nyala/) || cmd.match(/(hidupkan|nyalakan).*semua/)) {
                     publishAll('ON');
                     setRelayState([true, true, true, true]);
                     speak("Semua lampu dinyalakan");
-                } else if (cmd.includes('semua mati') || cmd.includes('matikan semua')) {
+                } else if (cmd.match(/(semua).*mati/) || cmd.match(/(matikan).*semua/)) {
                     publishAll('OFF');
                     setRelayState([false, false, false, false]);
                     speak("Semua lampu dimatikan");
-                } else if (cmd.includes('pola satu') || cmd.includes('pola lampu satu')) {
+                } else if (cmd.match(/pola (satu|1)/)) {
                     publishAll('POLA1');
                     speak("Pola satu diaktifkan");
-                } else if (cmd.includes('pola dua') || cmd.includes('pola lampu dua')) {
+                } else if (cmd.match(/pola (dua|2)/)) {
                     publishAll('POLA2');
                     speak("Pola dua diaktifkan");
                 } else if (cmd.includes('stop pola') || cmd.includes('hentikan pola') || cmd.includes('berhenti')) {
